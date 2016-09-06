@@ -1,3 +1,4 @@
+改成中文名，希望不被其他人搜到。
 # CS 186 Fall 2016
 
 Course repository for [CS 186, Fall 2016](http://cs186berkeley.net). All
