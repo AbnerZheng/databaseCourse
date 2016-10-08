@@ -51,7 +51,7 @@ public class Database {
         int lastIndex = fName.lastIndexOf(Table.FILENAME_EXTENSION); 
         String tableName = fName.substring(0, lastIndex);
         tableLookup.put(tableName, new Table(tableName, this.fileDir));
-      } else if (fName.endsWith(BPlusTree.FILENAME_EXTENSION)) {
+      } else if (fName.endsWith(BPlusTree.FILENAME_EXTENSION)) { //如果是B+树
         int lastIndex = fName.lastIndexOf(BPlusTree.FILENAME_EXTENSION);
         String indexName = fName.substring(0, lastIndex);
         indexLookup.put(indexName, new BPlusTree(indexName, this.fileDir));
@@ -120,15 +120,15 @@ public class Database {
    * @return true if the database was successfully deleted
    */
   public synchronized boolean deleteTable(String tableName) {
-    if (!this.tableLookup.containsKey(tableName)) {
+    if (!this.tableLookup.containsKey(tableName)) { // 如果查找表中不包含该表
       return false;
     }
 
-    this.tableLookup.get(tableName).close();
-    this.tableLookup.remove(tableName);
+    this.tableLookup.get(tableName).close(); // 关闭
+    this.tableLookup.remove(tableName); // 从查找表中删除
 
     File f = new File(fileDir + tableName + Table.FILENAME_EXTENSION);
-    f.delete();
+    f.delete(); // 删除该文件
 
     return true;
   }
@@ -137,7 +137,7 @@ public class Database {
    * Delete all tables from this database.
    */
   public synchronized void deleteAllTables() {
-    List<String> tableNames = new ArrayList<String>(tableLookup.keySet());
+    List<String> tableNames = new ArrayList<String>(tableLookup.keySet()); // 删除所有的表
 
     for (String s : tableNames) {
       deleteTable(s);
@@ -152,11 +152,12 @@ public class Database {
       t.close();
     }
 
-    this.tableLookup.clear();
+    this.tableLookup.clear(); // 把 <key,value>删除
   }
 
   /**
    * Start a new transaction.
+   * 开始一个新的事务
    *
    * @return the new Transaction
    */

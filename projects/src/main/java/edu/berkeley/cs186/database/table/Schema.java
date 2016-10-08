@@ -43,8 +43,17 @@ public class Schema {
    * @throws SchemaException if the values specified don't conform to this Schema
    */
   public Record verify(List<DataType> values) throws SchemaException {
-    //TODO: Implement Me!!
-    return null;
+    if(values.size() != fieldTypes.size()){
+      throw  new SchemaException("Values specified don't conform to the schema");
+    };
+    for (int i = 0; i<values.size(); i++){
+      DataType value = values.get(i);
+      DataType field = fieldTypes.get(i);
+      if(value.type() != field.type() || value.getSize() != field.getSize()){
+        throw  new SchemaException("Values specified don't conform to the schema");
+      }
+    }
+    return new Record(values);
   }
 
   /**
@@ -57,8 +66,29 @@ public class Schema {
    * @return the encoded record as a byte[]
    */
   public byte[] encode(Record record) {
-    //TODO: Implement Me!!
-    return null;
+    List<DataType> values = record.getValues();
+
+    // described in 9.7.1
+    // fixed length record
+
+    ByteBuffer result = ByteBuffer.allocate(size);
+    DataType temp;
+    for (DataType value: values){
+      switch (value.type()){
+        case INT:
+          result.putInt(value.getInt());
+          break;
+        case FLOAT:
+          result.putFloat(value.getFloat());
+          break;
+        case BOOL:
+          result.put((byte) (value.getBool()?0x1:0x0));
+          break;
+        default:
+          result.put(value.getString().getBytes());
+      }
+    }
+    return result.array();
   }
 
   /**
@@ -69,8 +99,38 @@ public class Schema {
    * @return the decoded Record
    */
   public Record decode(byte[] input) {
-    //TODO: Implement Me!!
-    return null;
+    List<DataType> result = new ArrayList<DataType>();
+    ByteBuffer byteBuffer = ByteBuffer.allocate(input.length);
+    byteBuffer.put(input);
+    byteBuffer.flip();
+    DataType temp;
+    for (DataType dataType: fieldTypes){
+      switch (dataType.type()){
+        case INT:
+          temp = new IntDataType(byteBuffer.getInt());
+          break;
+        case FLOAT:
+          temp = new FloatDataType(byteBuffer.getFloat());
+          break;
+        case BOOL:
+          byte a = byteBuffer.get();
+          Boolean type;
+          if(a == 0x1){
+            type = true;
+          }else{
+            type = false;
+          }
+          temp = new BoolDataType(type);
+          break;
+        default:
+          int s = dataType.getSize();
+          byte[] dst = new byte[s];
+          byteBuffer.get(dst);
+          temp = new StringDataType(dst);
+      }
+      result.add(temp);
+    }
+    return new Record(result);
   }
 
   public int getEntrySize() {
