@@ -10,6 +10,7 @@ import edu.berkeley.cs186.database.io.PageAllocator;
 import edu.berkeley.cs186.database.io.Page;
 import edu.berkeley.cs186.database.io.PageException;
 import edu.berkeley.cs186.database.table.stats.TableStats;
+import javafx.scene.control.Tab;
 
 import java.nio.ByteBuffer;
 import java.nio.charset.Charset;
@@ -223,8 +224,16 @@ public class Table implements Iterable<Record>, Closeable {
      * @throws DatabaseException if rid does not correspond to a valid record
      */
     public Record deleteRecord(RecordID rid) throws DatabaseException {
-        //TODO: Implement Me!!
-        return null;
+        Record oldRecord = this.getRecord(rid);
+        Page page = this.allocator.fetchPage(rid.getPageNum());
+        writeBitToHeader(page, rid.getSlotNumber(), (byte) 0);
+        if (numValidEntries(page) == 0) {
+            this.freePages.remove(page.getPageNum());
+            this.allocator.freePage(page);
+        }
+        this.stats.removeRecord(oldRecord);
+        this.numRecords--;
+        return oldRecord;
     }
 
     /**
@@ -235,7 +244,7 @@ public class Table implements Iterable<Record>, Closeable {
      * @throws DatabaseException if rid does not correspond to a valid record
      */
     public Record getRecord(RecordID rid) throws DatabaseException {
-        if(this.checkRecordIDValidity(rid)){
+        if (this.checkRecordIDValidity(rid)) {
             Page p = this.allocator.fetchPage(rid.getPageNum());
             int entrySize = this.schema.getEntrySize();
 
@@ -244,13 +253,13 @@ public class Table implements Iterable<Record>, Closeable {
 
             Record record = this.schema.decode(bytes);
             return record;
-        }else{
+        } else {
             throw new DatabaseException("There is no valid records correspond to the rid");
         }
     }
 
-    private int positionOfRecord(int slotNumber){
-        return  this.schema.getEntrySize() * slotNumber + this.pageHeaderSize;
+    private int positionOfRecord(int slotNumber) {
+        return this.schema.getEntrySize() * slotNumber + this.pageHeaderSize;
     }
 
     /**
@@ -269,7 +278,7 @@ public class Table implements Iterable<Record>, Closeable {
             Record oldRecord = this.getRecord(rid);
             Page p = this.allocator.fetchPage(rid.getPageNum());
             int offset = positionOfRecord(rid.getSlotNumber());
-            p.writeBytes(offset,this.schema.getEntrySize(), this.schema.encode(newRecord));
+            p.writeBytes(offset, this.schema.getEntrySize(), this.schema.encode(newRecord));
             //update statsTable
             this.stats.removeRecord(oldRecord);
             this.stats.addRecord(newRecord);
@@ -302,14 +311,14 @@ public class Table implements Iterable<Record>, Closeable {
             int slotNum = rid.getSlotNumber();
             Page page = this.allocator.fetchPage(pageNum);
             byte[] header = this.readPageHeader(page);
-            byte headerByte =header[slotNum>>3];
-            byte mask = (byte) ((byte) 0x1 << (7-slotNum % 8));
-            if((headerByte & mask) == 0){
+            byte headerByte = header[slotNum >> 3];
+            byte mask = (byte) ((byte) 0x1 << (7 - slotNum % 8));
+            if ((headerByte & mask) == 0) {
                 return false;
-            }else{
+            } else {
                 return true;
             }
-        }catch (Exception e){
+        } catch (Exception e) {
             throw new DatabaseException("rid does not reference an existing data page slot");
         }
     }
@@ -362,7 +371,7 @@ public class Table implements Iterable<Record>, Closeable {
     private int numValidEntries(Page p) {
         byte[] header = this.readPageHeader(p);
         int count = 0;
-        int[] onesOfbytes = new int[0xff];
+        int[] onesOfbytes = new int[0x100];
         //这里没必要每一个都遍历统计1的个数,可采用查表
 
         //统计b二进制表示中1的个数
@@ -372,7 +381,7 @@ public class Table implements Iterable<Record>, Closeable {
             onesOfbytes[i] = onesOfbytes[i & (i - 1)] + 1;
         }
         for (byte b : header) {
-            count += onesOfbytes[b];
+            count += onesOfbytes[b&0xff];
         }
         return count;
     }
@@ -506,9 +515,18 @@ public class Table implements Iterable<Record>, Closeable {
      * of the records in this table.
      */
     private class TableIterator implements Iterator<Record> {
+        private int entryNum;
+        private int cursor;
+        private Iterator<Page> iterator;
+        private Page page;
+        private int slotNum;
 
         public TableIterator() {
-            //TODO Implement Me!
+            this.entryNum = 0;
+            this.iterator = Table.this.allocator.iterator();
+            this.iterator.next();
+            this.page = this.iterator.next();
+            this.slotNum = 0;
         }
 
         /**
@@ -517,8 +535,7 @@ public class Table implements Iterable<Record>, Closeable {
          * @return true if this iterator has another record to yield, otherwise false
          */
         public boolean hasNext() {
-            //TODO Implement Me!
-            return false;
+            return this.entryNum < Table.this.numRecords;
         }
 
         /**
@@ -528,8 +545,55 @@ public class Table implements Iterable<Record>, Closeable {
          * @throws NoSuchElementException if there are no more Records to yield
          */
         public Record next() {
-            //TODO Implement Me!
+            if (hasNext()) {
+                try {
+                    return nextRecord();
+                } catch (DatabaseException e) {
+                    e.printStackTrace();
+                }
+            } else {
+                throw new NoSuchElementException("No more Records to yield");
+            }
             return null;
+        }
+
+        private Record nextRecord() throws DatabaseException {
+            byte[] header = Table.this.readPageHeader(page);
+            int headerIndex = slotNum >> 3;
+            int byteIndex = slotNum % 8;
+            boolean flag = false;
+            if (byteIndex != 0) {
+                while (byteIndex < 8) {
+                    int value = header[headerIndex] & (byte) (0x1 << (7 - byteIndex));
+                    if (value != 0) { //说明找到了
+                        flag = true;
+                        break;
+                    }
+                    byteIndex++;
+                }
+            }
+            if (!flag) {
+                if (slotNum % 8 != 0) {
+                    headerIndex++;
+                }
+                byteIndex = 0;
+                while (headerIndex < Table.this.pageHeaderSize) {
+                    byte slots = header[headerIndex];
+                    if (slots != (byte) 0x00) {
+                        for (; ((byte) (0x1 << (7 - byteIndex)) & slots) == 0x0 && byteIndex < 8; ++byteIndex) ;
+                        break;
+                    }
+                    headerIndex++;
+                }
+                if (headerIndex == Table.this.pageHeaderSize) {
+                    page = this.iterator.next();
+                    slotNum = 0;
+                    return nextRecord();
+                }
+            }
+            slotNum = headerIndex * 8 + byteIndex + 1;
+            this.entryNum++;
+            return Table.this.getRecord(new RecordID(page.getPageNum(), slotNum - 1));
         }
 
         public void remove() {
